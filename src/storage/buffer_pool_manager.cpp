@@ -82,8 +82,17 @@ Page *BufferPoolManager::fetch_page(PageId page_id) {
         return nullptr;
     }
     Page *page = &pages_[frame_id];
-    if (page->is_dirty_) {
-        update_page(page, PageId{-1, INVALID_PAGE_ID}, frame_id);
+    if (page->id_.page_no != INVALID_PAGE_ID) {
+        // 先将旧页面从页表中移除
+        page_table_.erase(page->id_);
+
+        // 如果是脏页，写回磁盘
+        if (page->is_dirty_) {
+            disk_manager_->write_page(page->id_.fd, page->id_.page_no, page->data_, PAGE_SIZE);
+        }
+
+        // 重置页面内存和状态
+        page->reset_memory();
     }
 
     // 3. 调用disk_manager_的read_page读取目标页到frame
