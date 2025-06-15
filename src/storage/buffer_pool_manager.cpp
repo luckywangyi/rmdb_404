@@ -62,11 +62,14 @@ void BufferPoolManager::update_page(Page *page, PageId new_page_id, frame_id_t n
  * @return {Page*} 若获得了需要的页则将其返回，否则返回nullptr
  * @param {PageId} page_id 需要获取的页的PageId
  */
+/**
+ * @description: 从buffer pool获取需要的页。
+ */
 Page *BufferPoolManager::fetch_page(PageId page_id) {
-    // 1. 从page_table_中搜寻目标页
+    std::scoped_lock lock{latch_};
+
     auto it = page_table_.find(page_id);
     if (it != page_table_.end()) {
-        // 1.1 若目标页有被page_table_记录，则将其所在frame固定(pin)，并返回目标页
         frame_id_t frame_id = it->second;
         Page *page = &pages_[frame_id];
         page->pin_count_++;
@@ -74,79 +77,62 @@ Page *BufferPoolManager::fetch_page(PageId page_id) {
         return page;
     }
 
-    // 1.2 否则，尝试调用find_victim_page获得一个可用的frame，若失败则返回nullptr
     frame_id_t frame_id;
     if (!find_victim_page(&frame_id)) {
         return nullptr;
     }
     Page *page = &pages_[frame_id];
-    if (page->id_.page_no != INVALID_PAGE_ID) {
-        // 先将旧页面从页表中移除
-        page_table_.erase(page->id_);
 
-        // 如果是脏页，写回磁盘
-        if (page->is_dirty_) {
-            disk_manager_->write_page(page->id_.fd, page->id_.page_no, page->data_, PAGE_SIZE);
-        }
-
-        // 重置页面内存和状态
-        page->reset_memory();
+    // 原子性处理脏页写回
+    if (page->is_dirty_) {
+        disk_manager_->write_page(page->id_.fd, page->id_.page_no, page->data_, PAGE_SIZE);
+        page->is_dirty_ = false;
     }
 
-    // 3. 调用disk_manager_的read_page读取目标页到frame
+    // 清除旧页表项
+    page_table_.erase(page->id_);
+
+    // 读取新页面数据
     disk_manager_->read_page(page_id.fd, page_id.page_no, page->data_, PAGE_SIZE);
 
-    // 4. 固定目标页，更新pin_count_
+    // 更新页面元数据
     page->id_ = page_id;
     page->pin_count_ = 1;
-    page->is_dirty_ = false;
     page_table_[page_id] = frame_id;
     replacer_->pin(frame_id);
 
-    // 5. 返回目标页
     return page;
 }
 
 /**
  * @description: 取消固定pin_count>0的在缓冲池中的page
- * @return {bool} 如果目标页的pin_count<=0则返回false，否则返回true
- * @param {PageId} page_id 目标page的page_id
- * @param {bool} is_dirty 若目标page应该被标记为dirty则为true，否则为false
  */
 bool BufferPoolManager::unpin_page(PageId page_id, bool is_dirty) {
-    // Todo:
-    // 0. lock latch
-    // 1. 尝试在page_table_中搜寻page_id对应的页P
-    // 1.1 P在页表中不存在 return false
-    // 1.2 P在页表中存在，获取其pin_count_
-    // 2.1 若pin_count_已经等于0，则返回false
-    // 2.2 若pin_count_大于0，则pin_count_自减一
-    // 2.2.1 若自减后等于0，则调用replacer_的Unpin
-    // 3 根据参数is_dirty，更改P的is_dirty_
+    std::scoped_lock lock{latch_};
+
     auto it = page_table_.find(page_id);
     if (it == page_table_.end()) {
-        return false; // 1.1 P在页表中不存在
+        return false;
     }
 
-    // 获取目标页的frame_id和对应的Page对象
     frame_id_t frame_id = it->second;
     Page *page = &pages_[frame_id];
 
-    // 1.2 P在页表中存在，获取其pin_count_
     if (page->pin_count_ <= 0) {
-        return false; // 2.1 若pin_count_已经等于0
+        return false;
     }
 
-    // 2.2 若pin_count_大于0，则pin_count_自减一
     page->pin_count_--;
-    if (page->pin_count_ == 0) {
-        replacer_->unpin(frame_id); // 2.2.1 若自减后等于0，则调用replacer_的Unpin
-    }
 
-    // 3 根据参数is_dirty，更改P的is_dirty_
+    // 原子性设置脏页标志
     if (is_dirty) {
         page->is_dirty_ = true;
     }
+
+    if (page->pin_count_ == 0) {
+        replacer_->unpin(frame_id);
+    }
+
     return true;
 }
 
