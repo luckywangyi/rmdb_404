@@ -42,22 +42,19 @@ bool BufferPoolManager::find_victim_page(frame_id_t *frame_id) {
  * @param {frame_id_t} new_frame_id 新的帧frame_id
  */
 void BufferPoolManager::update_page(Page *page, PageId new_page_id, frame_id_t new_frame_id) {
-    // Todo:
     // 1 如果是脏页，写回磁盘，并且把dirty置为false
-    // 2 更新page table
-    // 3 重置page的data，更新page id
     if (page->is_dirty_) {
         disk_manager_->write_page(page->id_.fd, page->id_.page_no, page->data_, PAGE_SIZE);
         page->is_dirty_ = false;
     }
 
-    // 2. 更新page table
-    page_table_.erase(page->id_);  // 从页表中移除旧的page_id
-    page_table_[new_page_id] = new_frame_id;  // 添加新的page_id和frame_id映射
+    // 2 更新page table：先移除旧映射再添加新映射
+    page_table_.erase(page->id_);
+    page_table_[new_page_id] = new_frame_id;
 
-    // 3. 重置page的data，更新page id
-    page->reset_memory();  // 清空页面数据
-    page->id_ = new_page_id;  // 更新页面id
+    // 3 重置page的data，更新page id
+    page->reset_memory();
+    page->id_ = new_page_id;
 }
 
 /**
@@ -182,43 +179,26 @@ bool BufferPoolManager::flush_page(PageId page_id) {
  * @param {PageId*} page_id 当成功创建一个新的page时存储其page_id
  */
 Page *BufferPoolManager::new_page(PageId *page_id) {
-    // 1.   获得一个可用的frame，若无法获得则返回nullptr
-    // 2.   在fd对应的文件分配一个新的page_id
-    // 3.   将frame的数据写回磁盘
-    // 4.   固定frame，更新pin_count_
-    // 5.   返回获得的page
-    std::scoped_lock lock{latch_}; // 确保线程安全
+    std::scoped_lock lock{latch_};
 
-    // 1. 获得一个可用的frame，若无法获得则返回nullptr
     frame_id_t frame_id;
     if (!find_victim_page(&frame_id)) {
         return nullptr;
     }
 
-    // 2. 在磁盘上分配一个新的page_id
+    // 分配新页面ID（修复：直接使用传入的文件描述符）
     page_id_t new_page_no = disk_manager_->allocate_page(page_id->fd);
-    page_id->page_no = new_page_no;
+    *page_id = PageId{page_id->fd, new_page_no};
 
-    // 3.   将frame的数据写回磁盘
-    Page* new_page = &pages_[frame_id];
-    update_page(new_page, *page_id, frame_id);
+    Page* page = &pages_[frame_id];
+    // 更新页面前处理旧数据（修复：调用标准更新流程）
+    update_page(page, *page_id, frame_id);
 
-    // 4.   固定frame，更新pin_count_
-    new_page->pin_count_ = 1;
+    // 初始化新页面属性（修复：移除多余的磁盘写入）
+    page->pin_count_ = 1;
     replacer_->pin(frame_id);
 
-    // 【核心修复】: 立即将这个新分配的空页面写到磁盘。
-    disk_manager_->write_page(new_page->get_page_id().fd, new_page->get_page_id().page_no, new_page->get_data(), PAGE_SIZE);
-
-    // Pin住新页面以供调用者使用
-    new_page->pin_count_ = 1;
-    replacer_->pin(frame_id);
-
-    // 5.   返回获得的page
-    return new_page;
-
-
-
+    return page;
 }
 
 /**
