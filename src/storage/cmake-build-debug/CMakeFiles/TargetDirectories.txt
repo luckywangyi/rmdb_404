@@ -1,0 +1,3 @@
+/home/lucky/db2025/rmdb/src/storage/cmake-build-debug/CMakeFiles/storage.dir
+/home/lucky/db2025/rmdb/src/storage/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/lucky/db2025/rmdb/src/storage/cmake-build-debug/CMakeFiles/rebuild_cache.dir
