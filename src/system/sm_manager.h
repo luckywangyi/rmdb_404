@@ -66,7 +66,7 @@ class SmManager {
 
     void show_tables(Context* context);
 
-    void show_indexes(std::string &table_name, Context* context);
+    void show_indexes(std::string &table_name, Context *context);
 
     void desc_table(const std::string& tab_name, Context* context);
 
