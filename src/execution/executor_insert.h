@@ -51,10 +51,12 @@ class InsertExecutor : public AbstractExecutor {
         }
         // Insert into record file
         rid_ = fh_->insert_record(rec.data, context_);
-        
+
         // Insert into index
-        for(size_t i = 0; i < tab_.indexes.size(); ++i) {
-            auto& index = tab_.indexes[i];
+        for(auto& index_pair : tab_.indexes) {
+            auto& index_name = index_pair.first;  // 索引名称
+            auto& index = index_pair.second;      // 索引元数据
+
             auto ih = sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index.cols)).get();
             char* key = new char[index.col_tot_len];
             int offset = 0;
@@ -63,6 +65,7 @@ class InsertExecutor : public AbstractExecutor {
                 offset += index.cols[i].len;
             }
             ih->insert_entry(key, rid_, context_->txn_);
+            delete[] key;  // 别忘了释放内存
         }
         return nullptr;
     }

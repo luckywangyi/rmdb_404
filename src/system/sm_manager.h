@@ -48,9 +48,9 @@ class SmManager {
 
     BufferPoolManager* get_bpm() { return buffer_pool_manager_; }
 
-    RmManager* get_rm_manager() { return rm_manager_; }  
+    RmManager* get_rm_manager() { return rm_manager_; }
 
-    IxManager* get_ix_manager() { return ix_manager_; }  
+    IxManager* get_ix_manager() { return ix_manager_; }
 
     bool is_dir(const std::string& db_name);
 
@@ -77,6 +77,6 @@ class SmManager {
     void create_index(const std::string& tab_name, const std::vector<std::string>& col_names, Context* context);
 
     void drop_index(const std::string& tab_name, const std::vector<std::string>& col_names, Context* context);
-    
+
     void drop_index(const std::string& tab_name, const std::vector<ColMeta>& col_names, Context* context);
 };
